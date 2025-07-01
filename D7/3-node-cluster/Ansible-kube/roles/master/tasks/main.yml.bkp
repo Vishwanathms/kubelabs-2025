@@ -1,0 +1,104 @@
+#- name: Clean existing Kubernetes packages
+#  shell: |
+#    dpkg --purge kubeadm kubectl kubelet
+#    apt-get autoremove -y
+#  ignore_errors: true
+
+#- name: Install Kubernetes packages
+#  shell: |
+#    apt-get update
+#    apt-get install -y --allow-unauthenticated kubelet kubeadm kubectl
+#    apt-mark hold kubelet kubeadm kubectl
+#  register: k8s_install
+
+- name: Verify Kubernetes installation
+  shell: |
+    which kubeadm kubectl kubelet
+  register: k8s_check
+  ignore_errors: true
+
+- name: Verify binary paths
+  shell: |
+    ls -l /usr/bin/kubeadm /usr/bin/kubectl /usr/bin/kubelet
+  register: binary_check
+  when: k8s_check.rc == 0
+
+
+- name: Pull Kubernetes images
+  shell: |
+    kubeadm config images pull
+  register: pull_images
+  retries: 3
+  delay: 10
+  until: pull_images is success
+  when: binary_check is success
+
+- name: Reset existing cluster
+  shell: |
+    kubeadm reset -f
+    rm -rf /etc/kubernetes/*
+    rm -rf /var/lib/kubelet/*
+    rm -rf /var/lib/etcd/*
+    systemctl restart containerd
+  ignore_errors: true
+
+- name: Update sandbox image
+  shell: |
+    crictl pull registry.k8s.io/pause:3.10
+  ignore_errors: true
+
+- name: Check port 6443
+  shell: |
+    netstat -tlpn | grep 6443 || true
+    lsof -i :6443 || true
+    pkill -f "kube-apiserver|etcd" || true
+  ignore_errors: true
+
+- name: Initialize Kubernetes cluster
+  shell: |
+    kubeadm init --pod-network-cidr=10.244.0.0/16 \
+    --ignore-preflight-errors=all \
+    --v=5 \
+    --cri-socket=unix:///run/containerd/containerd.sock
+  register: kubeadm_init
+  async: 600
+  poll: 10
+
+- name: Create .kube directory
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+
+- name: Copy admin.conf to .kube/config
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: yes
+    mode: '0644'
+
+- name: Set KUBECONFIG environment
+  shell: |
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    kubeadm token create --print-join-command > /tmp/join-command
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: join_command
+
+- name: Verify join command
+  stat:
+    path: /tmp/join-command
+  register: join_file
+
+
+- name: Install Flannel CNI
+  shell: |
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+  when: kubeadm_init.rc == 0
+
+- name: Wait for nodes to be ready
+  shell: |
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    kubectl wait --for=condition=Ready nodes --all --timeout=300s
+  when: kubeadm_init.rc == 0

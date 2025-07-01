@@ -1,0 +1,23 @@
+- name: Kubernetes Cluster Setup
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+- name: Kubernetes Master Setup
+  hosts: master
+  become: yes
+  roles:
+    - master
+
+- name: Kubernetes Worker Setup
+  hosts: workers
+  become: yes
+  roles:
+    - worker
+
+- name: Copy config from master to console
+  hosts: localhost
+  become: yes
+  roles:
+    - copy_config

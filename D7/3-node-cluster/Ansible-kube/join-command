@@ -1,0 +1,1 @@
+kubeadm join 172.31.46.34:6443 --token pkylkz.0ch6h07xqar1nzop --discovery-token-ca-cert-hash sha256:939019af4f38d444444a64776f4f7df6212d4cab14d2bd4a10ce78693252ee51 

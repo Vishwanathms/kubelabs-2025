@@ -1,0 +1,132 @@
+#- name: Clean existing Kubernetes packages
+#  shell: |
+#    apt-get remove -y --allow-change-held-packages kubelet kubeadm kubectl
+#    apt-get autoremove -y
+#    rm -rf /etc/kubernetes/*
+#    rm -f /etc/systemd/system/kubelet.service
+#    systemctl daemon-reload
+#  ignore_errors: true
+
+#- name: Install Kubernetes packages
+#  shell: |
+#    apt-get update
+#    apt-get install -y --allow-unauthenticated kubelet kubeadm kubectl
+#    apt-mark hold kubelet kubeadm kubectl
+#  register: k8s_install
+
+#- name: Configure kubelet service
+#  copy:
+#    dest: /etc/systemd/system/kubelet.service
+#    content: |
+#      [Unit]
+#      Description=kubelet: The Kubernetes Node Agent
+#      Documentation=https://kubernetes.io/docs/
+#      Wants=network-online.target
+#      After=network-online.target
+
+#      [Service]
+#      ExecStart=/usr/bin/kubelet --container-runtime=remote --container-runtime-endpoint=unix:///run/containerd/containerd.sock
+#      Restart=always
+#      StartLimitInterval=0
+#      RestartSec=10
+
+#      [Install]
+#      WantedBy=multi-user.target
+
+#- name: Reload systemd and start kubelet
+#  shell: |
+#    systemctl daemon-reload
+#    systemctl enable kubelet
+#    systemctl restart kubelet
+#  register: kubelet_status
+#
+# - name: Verify kubeadm installation
+#   shell: which kubeadm
+#   register: kubeadm_check
+#   ignore_errors: true
+
+# - name: Stop kubelet service
+#   systemd:
+#     name: kubelet
+#     state: stopped
+#   ignore_errors: true
+
+# - name: Clean existing Kubernetes files
+#   shell: |
+#     rm -rf /etc/kubernetes/*
+#     rm -rf /var/lib/kubelet/*
+#     rm -rf /var/lib/etcd
+#     rm -rf /etc/cni/net.d/*
+#     pkill -f kubelet || true
+#   ignore_errors: true
+
+# - name: Wait for port release
+#   wait_for:
+#     port: 10250
+#     state: stopped
+#     timeout: 30
+
+- name: Join Worker Node to Cluster
+  command: "{{ hostvars['master']['kubeadm_join_command'] }}"
+
+# - name: Start kubelet service
+#   systemd:
+#     name: kubelet
+#     state: started
+#     enabled: yes
+#   when: join_result is success
+
+# - name: Copy Kubernetes Config from Master to Console VM
+#   hosts: master
+#   become: yes  # Run tasks as root (needed for accessing /etc/kubernetes/admin.conf)
+#   tasks:
+#     - name: Copy kubeconfig file from Master
+#       fetch:
+#         src: /etc/kubernetes/admin.conf  # Source file on master
+#         dest: /tmp/kubeconfig  # Temporary location on the Ansible control machine
+#         flat: yes  # Prevent Ansible from creating directories
+    
+# - name: Transfer kubeconfig to Console VM
+#   hosts: localhost
+#   become: yes
+#   tasks:
+#     - name: Create .kube directory
+#       file:
+#         path: ~/.kube
+#         state: directory
+#         mode: '0755'
+
+#     - name: Copy kubeconfig to Console VM
+#       copy:
+#         src: /tmp/kubeconfig  # The file we fetched earlier
+#         dest: ~/.kube/config  # Destination on console VM
+#         mode: '0600'
+
+#     - name: Set KUBECONFIG environment variable
+#       lineinfile:
+#         path: ~/.bashrc
+#         line: 'export KUBECONFIG=~/.kube/config'
+#         create: yes
+
+# - name: Create .kube directory on console
+#   file:
+#     path: "{{ ansible_env.HOME }}/.kube"
+#     state: directory
+#   delegate_to: localhost
+# - name: Fetch kubeconfig from master
+#   fetch:
+#     src: /etc/kubernetes/admin.conf
+#     dest: "{{ ansible_env.HOME }}/.kube/config"
+#     flat: yes
+#   delegate_to: localhost
+# - name: Set proper permissions for kubeconfig
+#   file:
+#     path: "{{ ansible_env.HOME }}/.kube/config"
+#     mode: '0600'
+#   delegate_to: localhost
+# - name: Update kubeconfig server address
+#   replace:
+#     path: "{{ ansible_env.HOME }}/.kube/config"
+#     regexp: '127.0.0.1'
+#     replace: "{{ hostvars['master']['ansible_host'] }}"
+#   delegate_to: localhost

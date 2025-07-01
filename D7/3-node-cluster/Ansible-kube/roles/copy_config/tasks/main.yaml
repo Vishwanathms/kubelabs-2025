@@ -1,0 +1,63 @@
+# - name: Ensure kubeconfig exists before copying
+#   stat:
+#     path: /etc/kubernetes/admin.conf
+#   register: kubeconfig_file
+#   delegate_to: master
+
+# - name: Fetch kubeconfig from master
+#   fetch:
+#     src: /etc/kubernetes/admin.conf
+#     dest: "{{ ansible_env.HOME }}/.kube/config"
+#     flat: yes
+#   when: kubeconfig_file.stat.exists
+#   delegate_to: master
+
+# - name: Create .kube directory on console
+#   file:
+#     path: "{{ ansible_env.HOME }}/.kube"
+#     state: directory
+#     mode: '0755'
+#   delegate_to: localhost
+
+# - name: Set proper permissions for kubeconfig
+#   file:
+#     path: "{{ ansible_env.HOME }}/.kube/config"
+#     mode: '0600'
+#   delegate_to: localhost
+
+# - name: Update kubeconfig server address
+#   lineinfile:
+#     path: "{{ ansible_env.HOME }}/.kube/config"
+#     regexp: '^    server: .*'
+#     line: "    server: https://{{ hostvars['master']['ansible_host'] }}:6443"
+#   delegate_to: localhost
+
+- name: Create .kube directory on console
+  file:
+    path: "{{ ansible_env.HOME }}/.kube"
+    state: directory
+  delegate_to: localhost
+
+- name: Fetch kubeconfig from master
+  fetch:
+    src: /root/.kube/config
+    dest: "{{ lookup('env', 'HOME') }}/.kube/config"
+    flat: yes
+  delegate_to: master
+# - name: Fetch kubeconfig from master
+#   fetch:
+#     src: /etc/kubernetes/admin.conf
+#     dest: "{{ ansible_env.HOME }}/.kube/config"
+#     flat: yes
+#   delegate_to: localhost
+- name: Set proper permissions for kubeconfig
+  file:
+    path: "/home/ubuntu/.kube/config"
+    mode: '0600'
+  delegate_to: localhost
+- name: Update kubeconfig server address
+  replace:
+    path: "/home/ubuntu/.kube/config"
+    regexp: '127.0.0.1'
+    replace: "{{ hostvars['master']['ansible_host'] }}"
+  delegate_to: localhost

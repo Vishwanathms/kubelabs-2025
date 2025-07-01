@@ -1,0 +1,265 @@
+- name: Disable swap
+  command: swapoff -a
+
+- name: Disable swap permanently
+  replace:
+    path: /etc/fstab
+    regexp: '^\s*(\S+)\s+swap\s+\S+'
+    replace: '# \1'
+
+- name: Force remove all repository lists
+  shell: rm -rf /var/lib/apt/lists/*
+  ignore_errors: yes
+
+- name: Clean apt cache
+  command: apt-get clean
+
+- name: Remove APT locks
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /var/lib/dpkg/lock
+    - /var/lib/dpkg/lock-frontend
+    - /var/cache/apt/archives/lock
+
+- name: Remove old Docker installations
+  apt:
+    name: "{{ item }}"
+    state: absent
+  with_items:
+    - docker
+    - docker-engine
+    - docker.io
+    - containerd
+    - runc
+
+- name: Remove old Kubernetes installations
+  shell: |
+    apt-get remove -y --allow-change-held-packages {{ item }}
+    apt-get autoremove -y
+  with_items:
+    - kubelet
+    - kubeadm
+    - kubectl
+  ignore_errors: true
+
+- name: Clean package cache
+  shell: |
+    rm -rf /var/lib/apt/lists/*
+    apt-get clean
+  ignore_errors: true
+
+- name: Install basic packages
+  shell: |
+    apt-get update --allow-insecure-repositories
+    apt-get install -y ca-certificates curl gnupg
+
+# ... existing cleanup tasks ...
+
+- name: Create keyrings directory
+  file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Remove old Docker GPG keys and repositories
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /etc/apt/keyrings/docker.gpg
+    - /usr/share/keyrings/docker-archive-keyring.gpg
+    - /etc/apt/sources.list.d/docker.list
+    - /etc/apt/sources.list.d/docker.list.save
+    - /etc/apt/trusted.gpg.d/docker.gpg
+    - /etc/apt/trusted.gpg.d/docker.gpg~
+    - /etc/apt/trusted.gpg.d/docker.asc
+
+
+- name: Download Docker GPG key
+  get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /tmp/docker.gpg
+    mode: '0644'
+    force: yes
+
+- name: Import Docker GPG key
+  shell: |
+    install -m 0755 -d /etc/apt/keyrings
+    cat /tmp/docker.gpg | gpg --dearmor --yes --batch -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+
+- name: Add Docker repository
+  shell: |
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list
+
+- name: Clean apt lists
+  shell: |
+    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/cache/apt/archives/*
+    mkdir -p /var/lib/apt/lists/partial
+    apt-get clean
+
+# ... rest of the tasks ...
+
+- name: Update apt and install Docker
+  shell: |
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io
+
+- name: Create containerd directory
+  file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+
+- name: Configure containerd
+  shell: |
+    containerd config default > /etc/containerd/config.toml
+    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+    systemctl restart containerd
+    systemctl enable containerd
+  register: containerd_config
+
+- name: Enable systemd cgroup driver
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  notify: Restart containerd
+
+- name: Remove duplicate Kubernetes repository files
+  shell: |
+    rm -f /etc/apt/sources.list.d/apt_kubernetes_io.list
+    rm -f /etc/apt/sources.list.d/kubernetes.list
+
+- name: Create trusted.gpg.d directory
+  file:
+    path: /etc/apt/trusted.gpg.d
+    state: directory
+    mode: '0755'
+
+- name: Download Kubernetes GPG key
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/kubernetes.gpg > /dev/null
+    chmod a+r /etc/apt/trusted.gpg.d/kubernetes.gpg
+  args:
+    executable: /bin/bash
+
+- name: Add Kubernetes repository
+  apt_repository:
+    repo: 'deb [signed-by=/etc/apt/trusted.gpg.d/kubernetes.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /'
+    state: present
+    filename: kubernetes
+    mode: '0644'
+    update_cache: no
+
+- name: Clean apt lists
+  shell: |
+    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/cache/apt/archives/*
+    mkdir -p /var/lib/apt/lists/partial
+
+- name: Create sources.list
+  shell: |
+    echo "deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse
+    deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-updates main restricted universe multiverse
+    deb http://security.ubuntu.com/ubuntu $(lsb_release -cs)-security main restricted universe multiverse" > /etc/apt/sources.list
+
+
+- name: Update apt cache
+  shell: |
+    apt-get clean
+    apt-get update --allow-insecure-repositories --allow-unauthenticated
+  args:
+    executable: /bin/bash
+
+- name: Install dependencies
+  shell: |
+    apt-get install -y --allow-unauthenticated socat cri-tools apt-transport-https ca-certificates gnupg curl
+  args:
+    executable: /bin/bash
+
+- name: Install Kubernetes components
+  shell: |
+    apt-get install -y --allow-unauthenticated kubelet kubeadm kubectl
+    apt-mark hold kubelet kubeadm kubectl
+  args:
+    executable: /bin/bash
+
+- name: Create kubelet service directory
+  file:
+    path: /etc/systemd/system/kubelet.service.d
+    state: directory
+    mode: '0755'
+
+- name: Configure kubelet service
+  copy:
+    dest: /etc/systemd/system/kubelet.service
+    content: |
+      [Unit]
+      Description=kubelet: The Kubernetes Node Agent
+      Documentation=https://kubernetes.io/docs/
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      ExecStart=/usr/bin/kubelet
+      Restart=always
+      StartLimitInterval=0
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and start kubelet
+  systemd:
+    name: kubelet
+    state: started
+    enabled: yes
+
+- name: Hold Kubernetes packages
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  with_items:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Enable and start Docker
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Enable and start containerd
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes
+
+
+- name: Load kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - overlay
+    - br_netfilter
+
+- name: Configure kernel parameters
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: /etc/sysctl.d/k8s.conf
+  with_items:
+    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { name: 'net.ipv4.ip_forward', value: '1' }

@@ -1,0 +1,81 @@
+#- name: Clean existing Kubernetes packages
+#  shell: |
+#    apt-get remove -y --allow-change-held-packages kubelet kubeadm kubectl
+#    apt-get autoremove -y
+#    rm -rf /etc/kubernetes/*
+#    rm -f /etc/systemd/system/kubelet.service
+#    systemctl daemon-reload
+#  ignore_errors: true
+
+#- name: Install Kubernetes packages
+#  shell: |
+#    apt-get update
+#    apt-get install -y --allow-unauthenticated kubelet kubeadm kubectl
+#    apt-mark hold kubelet kubeadm kubectl
+#  register: k8s_install
+
+#- name: Configure kubelet service
+#  copy:
+#    dest: /etc/systemd/system/kubelet.service
+#    content: |
+#      [Unit]
+#      Description=kubelet: The Kubernetes Node Agent
+#      Documentation=https://kubernetes.io/docs/
+#      Wants=network-online.target
+#      After=network-online.target
+
+#      [Service]
+#      ExecStart=/usr/bin/kubelet --container-runtime=remote --container-runtime-endpoint=unix:///run/containerd/containerd.sock
+#      Restart=always
+#      StartLimitInterval=0
+#      RestartSec=10
+
+#      [Install]
+#      WantedBy=multi-user.target
+
+#- name: Reload systemd and start kubelet
+#  shell: |
+#    systemctl daemon-reload
+#    systemctl enable kubelet
+#    systemctl restart kubelet
+#  register: kubelet_status
+#
+- name: Verify kubeadm installation
+  shell: which kubeadm
+  register: kubeadm_check
+  ignore_errors: true
+
+
+- name: Copy join command to worker
+  copy:
+    src: "join-command"
+    dest: "/tmp/join-command"
+    mode: '0644'
+
+- name: Clean existing Kubernetes configuration
+  shell: |
+    kubeadm reset -f
+    rm -rf /etc/kubernetes/*
+    rm -rf /var/lib/kubelet/*
+    rm -rf /etc/cni/net.d
+    rm -rf $HOME/.kube
+    systemctl restart kubelet
+  ignore_errors: true
+
+- name: Wait for master API server
+  shell: |
+    curl -k https://{{ hostvars['master']['ansible_default_ipv4']['address'] }}:6443/healthz
+  register: api_status
+  retries: 12
+  delay: 10
+  until: api_status.rc == 0
+  ignore_errors: true
+
+- name: Join Kubernetes cluster
+  shell: |
+    bash /tmp/join-command --ignore-preflight-errors=all --v=5 --discovery-retry-interval=5s
+  register: join_result
+  retries: 3
+  delay: 30
+  until: join_result is success
+  when: api_status is success
