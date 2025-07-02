@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-example
+  namespace: ns02
+  labels:
+    type: fast
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  nfs:
+    path: /srv/nfs/kubedata    # Path exported by your NFS server
+    server: <NFS_SERVER_IP>    # Replace with your NFS server’s IP

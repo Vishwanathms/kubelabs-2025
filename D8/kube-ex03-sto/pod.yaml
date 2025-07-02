@@ -3,6 +3,8 @@ kind: Pod
 metadata:
   name: pod-using-pvc
   namespace: ns01
+  labels:
+    app: nginx
 spec:
   containers:
   - name: app

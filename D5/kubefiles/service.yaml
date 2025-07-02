@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-env-service
+spec:
+  type: NodePort
+  selector:
+    # These labels must match the pod's labels (default pod has no labels, so add one or use `name: nginx-env-demo`)
+    # If your pod has a label like "app: nginx-env-demo", use that here.
+    name: nginx-env-demo
+  ports:
+    - port: 80        # Port inside cluster (service port)
+      targetPort: 80  # Port on the pod/container
+      nodePort: 30080 # External port on the node (optional; can be omitted to auto-assign)

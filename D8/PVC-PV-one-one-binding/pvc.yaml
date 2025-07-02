@@ -8,5 +8,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      storage: 1Gi
   storageClassName: manual
+  selector:
+    matchLabels:
+      type: fast
