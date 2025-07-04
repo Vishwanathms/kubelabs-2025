@@ -1,0 +1,8 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-client
+provisioner: nfs.csi.k8s.io    # Or as specified by your NFS provisioner
+parameters:
+  server: <NFS_SERVER_IP>
+  share: /srv/nfs/kubedata

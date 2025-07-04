@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-nfs-example2
+  namespace: ns02
+spec:
+  accessModes:
+    - ReadWriteOnce         # or ReadWriteMany if needed and supported
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: nfs-client   # Use your NFS dynamic provisioner StorageClass name

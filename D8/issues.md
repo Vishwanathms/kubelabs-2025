@@ -11,3 +11,21 @@ I0702 06:18:47.479651       1 main.go:231] Created subnet manager: Kubernetes Su
 I0702 06:18:47.479659       1 main.go:234] Installing signal handlers
 I0702 06:18:47.480165       1 main.go:479] Found network config - Backend type: vxlan
 E0702 06:18:47.480241       1 main.go:268] Failed to check br_netfilter: stat /proc/sys/net/bridge/bridge-nf-call-iptables: no such file or directory
+
+
+==============================
+* For the above error
+
+sudo modprobe br_netfilter
+ 
+echo "br_netfilter" | sudo tee /etc/modules-load.d/br_netfilter.conf
+ 
+cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+sudo sysctl --system
+ 
+sudo systemctl restart kubelet
